@@ -1,6 +1,15 @@
 package com.openclassrooms.tourguide.service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
@@ -22,12 +31,25 @@ public class RewardsService {
 	private int attractionProximityRange = 200;
 	private final GpsUtil gpsUtil;
 	private final RewardCentral rewardsCentral;
-	
+
+	private final ExecutorService rewardsExecutor =
+			Executors.newFixedThreadPool(100);
+
 	public RewardsService(GpsUtil gpsUtil, RewardCentral rewardCentral) {
 		this.gpsUtil = gpsUtil;
 		this.rewardsCentral = rewardCentral;
 	}
-	
+
+
+	 // Getter pour controller getNearbyAttractions pour accéder à AttractionReward
+
+	public int getAttractionRewardPoints(Attraction attraction, User user) {
+		return rewardsCentral.getAttractionRewardPoints(
+				attraction.attractionId,
+				user.getUserId()
+		);
+	}
+
 	public void setProximityBuffer(int proximityBuffer) {
 		this.proximityBuffer = proximityBuffer;
 	}
@@ -35,17 +57,66 @@ public class RewardsService {
 	public void setDefaultProximityBuffer() {
 		proximityBuffer = defaultProximityBuffer;
 	}
-	
+
 	public void calculateRewards(User user) {
-		List<VisitedLocation> userLocations = user.getVisitedLocations();
-		List<Attraction> attractions = gpsUtil.getAttractions();
-		
-		for(VisitedLocation visitedLocation : userLocations) {
-			for(Attraction attraction : attractions) {
-				if(user.getUserRewards().stream().filter(r -> r.attraction.attractionName.equals(attraction.attractionName)).count() == 0) {
-					if(nearAttraction(visitedLocation, attraction)) {
-						user.addUserReward(new UserReward(visitedLocation, attraction, getRewardPoints(attraction, user)));
+
+		// On verrouille l'utilisateur pendant la préparation (lecture des listes)
+		final List<VisitedLocation> userLocations;
+		final List<Attraction> attractions;
+		final Set<UUID> rewardedAttractionIds;
+
+		//Verrouille le user, evite concurrence
+		synchronized (user) {
+			userLocations = new ArrayList<>(user.getVisitedLocations()); //copie
+			attractions = gpsUtil.getAttractions();
+
+			rewardedAttractionIds = user.getUserRewards().stream()
+					.map(r -> r.attraction.attractionId)
+					.collect(Collectors.toSet());
+		}
+
+		// Préparer les tâches à exécuter (sans faire d'appel réseau)
+		List<Callable<UserReward>> tasks = new ArrayList<>();
+
+		for (VisitedLocation visitedLocation : userLocations) {
+			for (Attraction attraction : attractions) {
+				if (!rewardedAttractionIds.contains(attraction.attractionId)
+						&& nearAttraction(visitedLocation, attraction)) {
+
+					tasks.add(() -> {    //Récupère locations, attractions, points
+						int points = rewardsCentral.getAttractionRewardPoints(
+								attraction.attractionId,
+								user.getUserId()
+						);
+						return new UserReward(visitedLocation, attraction, points);
+					});
+
+					rewardedAttractionIds.add(attraction.attractionId);
+				}
+			}
+		}
+
+		// Exécution en parallèle au maximum de threads accepté
+		List<Future<UserReward>> futures;
+		try {
+			futures = rewardsExecutor.invokeAll(tasks);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return;
+		}
+
+		// Ajout userReward calculé dans l'utilisateur
+		synchronized (user) {
+			for (Future<UserReward> f : futures) {
+				try {
+					UserReward reward = f.get();
+					if (reward != null) {
+						user.addUserReward(reward);
 					}
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					return;
+				} catch (ExecutionException e) {
 				}
 			}
 		}

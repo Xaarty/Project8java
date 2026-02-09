@@ -1,7 +1,9 @@
 package com.openclassrooms.tourguide;
 
+import java.util.ArrayList;
 import java.util.List;
 
+import gpsUtil.location.Location;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -13,6 +15,7 @@ import gpsUtil.location.VisitedLocation;
 import com.openclassrooms.tourguide.service.TourGuideService;
 import com.openclassrooms.tourguide.user.User;
 import com.openclassrooms.tourguide.user.UserReward;
+import com.openclassrooms.tourguide.NearbyAttractionDTO;
 
 import tripPricer.Provider;
 
@@ -41,10 +44,45 @@ public class TourGuideController {
         // The distance in miles between the user's location and each of the attractions.
         // The reward points for visiting each Attraction.
         //    Note: Attraction reward points can be gathered from RewardsCentral
-    @RequestMapping("/getNearbyAttractions") 
-    public List<Attraction> getNearbyAttractions(@RequestParam String userName) {
-    	VisitedLocation visitedLocation = tourGuideService.getUserLocation(getUser(userName));
-    	return tourGuideService.getNearByAttractions(visitedLocation);
+    @RequestMapping("/getNearbyAttractions")
+    public List<NearbyAttractionDTO> getNearbyAttractions(@RequestParam String userName) {
+
+        User user = getUser(userName);
+
+        // Dernière position de l'utilisateur
+        VisitedLocation visitedLocation = tourGuideService.getUserLocation(user);
+        Location userLocation = visitedLocation.location;
+
+        // Récupération des 5 attractions les plus proches
+        List<Attraction> attractions =
+                tourGuideService.getNearByAttractions(visitedLocation);
+
+        List<NearbyAttractionDTO> result = new ArrayList<>();
+
+        for (Attraction attraction : attractions) {
+
+            double distance =
+                    tourGuideService.getRewardsService()
+                            .getDistance(attraction, userLocation);
+
+            int rewardPoints =
+                    tourGuideService.getRewardsService()
+                            .getAttractionRewardPoints(attraction, user);
+
+            NearbyAttractionDTO dto = new NearbyAttractionDTO(
+                    attraction.attractionName,
+                    attraction.latitude,
+                    attraction.longitude,
+                    userLocation.latitude,
+                    userLocation.longitude,
+                    distance,
+                    rewardPoints
+            );
+
+            result.add(dto);
+        }
+
+        return result;
     }
     
     @RequestMapping("/getRewards") 

@@ -21,10 +21,11 @@ public class Tracker extends Thread {
 
 	public Tracker(TourGuideService tourGuideService) {
 		this.tourGuideService = tourGuideService;
-
+	}
+	/** Lance le tracking */
+	public void startTracking() {
 		executorService.submit(this);
 	}
-
 	/**
 	 * Assures to shut down the Tracker thread
 	 */

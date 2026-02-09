@@ -57,20 +57,23 @@ public class User {
 		return latestLocationTimestamp;
 	}
 	
-	public void addToVisitedLocations(VisitedLocation visitedLocation) {
+	public synchronized void addToVisitedLocations(VisitedLocation visitedLocation) {
 		visitedLocations.add(visitedLocation);
 	}
 	
-	public List<VisitedLocation> getVisitedLocations() {
+	public synchronized List<VisitedLocation> getVisitedLocations() {
 		return visitedLocations;
 	}
 	
-	public void clearVisitedLocations() {
+	public synchronized void clearVisitedLocations() {
 		visitedLocations.clear();
 	}
-	
-	public void addUserReward(UserReward userReward) {
-		if(userRewards.stream().filter(r -> !r.attraction.attractionName.equals(userReward.attraction)).count() == 0) {
+
+	public synchronized void addUserReward(UserReward userReward) {
+		boolean alreadyExists = userRewards.stream()
+				.anyMatch(r -> r.attraction.attractionName.equals(userReward.attraction.attractionName));
+
+		if (!alreadyExists) {
 			userRewards.add(userReward);
 		}
 	}
@@ -87,16 +90,16 @@ public class User {
 		this.userPreferences = userPreferences;
 	}
 
-	public VisitedLocation getLastVisitedLocation() {
+	public synchronized VisitedLocation getLastVisitedLocation() {
 		return visitedLocations.get(visitedLocations.size() - 1);
 	}
 	
-	public void setTripDeals(List<Provider> tripDeals) {
-		this.tripDeals = tripDeals;
+	public synchronized void setTripDeals(List<Provider> tripDeals) {
+		this.tripDeals = new ArrayList<>(tripDeals);
 	}
 	
-	public List<Provider> getTripDeals() {
-		return tripDeals;
+	public synchronized List<Provider> getTripDeals() {
+		return new ArrayList<>(tripDeals);
 	}
 
 }

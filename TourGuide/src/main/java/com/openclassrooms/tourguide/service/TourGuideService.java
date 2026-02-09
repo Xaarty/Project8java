@@ -7,16 +7,10 @@ import com.openclassrooms.tourguide.user.UserReward;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +33,12 @@ public class TourGuideService {
 	public final Tracker tracker;
 	boolean testMode = true;
 
+	//  Getter pour controller getNearbyAttractions pour accéder à RewardsService
+
+	public RewardsService getRewardsService() {
+		return rewardsService;
+	}
+
 	public TourGuideService(GpsUtil gpsUtil, RewardsService rewardsService) {
 		this.gpsUtil = gpsUtil;
 		this.rewardsService = rewardsService;
@@ -52,7 +52,12 @@ public class TourGuideService {
 			logger.debug("Finished initializing users");
 		}
 		tracker = new Tracker(this);
-		addShutDownHook();
+
+
+		if (!testMode) {
+			tracker.startTracking();
+			addShutDownHook();
+		}
 	}
 
 	public List<UserReward> getUserRewards(User user) {
@@ -97,10 +102,22 @@ public class TourGuideService {
 
 	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
 		List<Attraction> nearbyAttractions = new ArrayList<>();
+		Location userLocation = visitedLocation.location;
 		for (Attraction attraction : gpsUtil.getAttractions()) {
-			if (rewardsService.isWithinAttractionProximity(attraction, visitedLocation.location)) {
-				nearbyAttractions.add(attraction);
+			nearbyAttractions.add(attraction);
+		}
+
+		nearbyAttractions.sort(new Comparator<Attraction>() {
+			@Override
+			public int compare(Attraction a1, Attraction a2) {
+				double d1 = rewardsService.getDistance(a1, userLocation);
+				double d2 = rewardsService.getDistance(a2, userLocation);
+				return Double.compare(d1, d2);
 			}
+		});
+
+		if (nearbyAttractions.size() > 5) {
+			return nearbyAttractions.subList(0, 5);
 		}
 
 		return nearbyAttractions;
@@ -122,7 +139,7 @@ public class TourGuideService {
 	private static final String tripPricerApiKey = "test-server-api-key";
 	// Database connection will be used for external users, but for testing purposes
 	// internal users are provided and stored in memory
-	private final Map<String, User> internalUserMap = new HashMap<>();
+	private final Map<String, User> internalUserMap = new ConcurrentHashMap<>();
 
 	private void initializeInternalUsers() {
 		IntStream.range(0, InternalTestHelper.getInternalUserNumber()).forEach(i -> {
