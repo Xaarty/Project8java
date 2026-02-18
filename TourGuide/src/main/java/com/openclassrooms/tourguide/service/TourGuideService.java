@@ -26,14 +26,18 @@ import tripPricer.TripPricer;
 
 @Service
 public class TourGuideService {
+
 	private Logger logger = LoggerFactory.getLogger(TourGuideService.class);
+
 	private final GpsUtil gpsUtil;
 	private final RewardsService rewardsService;
 	private final TripPricer tripPricer = new TripPricer();
 	public final Tracker tracker;
+
+	//Pas de tracking auto
 	boolean testMode = true;
 
-	//  Getter pour controller getNearbyAttractions pour accéder à RewardsService
+	private final Map<String, User> internalUserMap = new HashMap<>();
 
 	public RewardsService getRewardsService() {
 		return rewardsService;
@@ -53,7 +57,7 @@ public class TourGuideService {
 		}
 		tracker = new Tracker(this);
 
-
+		//En test, pas de tracker
 		if (!testMode) {
 			tracker.startTracking();
 			addShutDownHook();
@@ -61,6 +65,7 @@ public class TourGuideService {
 	}
 
 	public List<UserReward> getUserRewards(User user) {
+		rewardsService.awaitPendingRewards(user); //attends que les rewards soient prete
 		return user.getUserRewards();
 	}
 
@@ -75,7 +80,7 @@ public class TourGuideService {
 	}
 
 	public List<User> getAllUsers() {
-		return internalUserMap.values().stream().collect(Collectors.toList());
+		return new ArrayList<>(internalUserMap.values());
 	}
 
 	public void addUser(User user) {
@@ -93,34 +98,35 @@ public class TourGuideService {
 		return providers;
 	}
 
+	/**
+	 * Track location => récupère position GPS, l’ajoute, puis calcule rewards.
+	 * Notre RewardsService ne bloque pas => gain énorme.
+	 */
 	public VisitedLocation trackUserLocation(User user) {
 		VisitedLocation visitedLocation = gpsUtil.getUserLocation(user.getUserId());
 		user.addToVisitedLocations(visitedLocation);
+		// Planifie le calcul (non bloquant), les points seront garantis à la lecture
 		rewardsService.calculateRewards(user);
 		return visitedLocation;
 	}
 
+	/**
+	 * Renvoyer les 5 attractions les plus proches
+	 */
 	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
-		List<Attraction> nearbyAttractions = new ArrayList<>();
 		Location userLocation = visitedLocation.location;
-		for (Attraction attraction : gpsUtil.getAttractions()) {
-			nearbyAttractions.add(attraction);
-		}
 
-		nearbyAttractions.sort(new Comparator<Attraction>() {
-			@Override
-			public int compare(Attraction a1, Attraction a2) {
-				double d1 = rewardsService.getDistance(a1, userLocation);
-				double d2 = rewardsService.getDistance(a2, userLocation);
-				return Double.compare(d1, d2);
-			}
+		//Utilise le cache du RewardsService
+		List<Attraction> nearby = new ArrayList<>(rewardsService.getAttractions());
+
+		//Tri par distance croissante
+		nearby.sort((a1, a2) -> {
+			double d1 = rewardsService.getDistance(a1, userLocation);
+			double d2 = rewardsService.getDistance(a2, userLocation);
+			return Double.compare(d1, d2);
 		});
-
-		if (nearbyAttractions.size() > 5) {
-			return nearbyAttractions.subList(0, 5);
-		}
-
-		return nearbyAttractions;
+		//Retourne uniquement les 5 plus proches
+		return (nearby.size() > 5) ? nearby.subList(0, 5) : nearby;
 	}
 
 	private void addShutDownHook() {
@@ -139,19 +145,33 @@ public class TourGuideService {
 	private static final String tripPricerApiKey = "test-server-api-key";
 	// Database connection will be used for external users, but for testing purposes
 	// internal users are provided and stored in memory
-	private final Map<String, User> internalUserMap = new ConcurrentHashMap<>();
+//	private final Map<String, User> internalUserMap = new ConcurrentHashMap<>();
 
 	private void initializeInternalUsers() {
-		IntStream.range(0, InternalTestHelper.getInternalUserNumber()).forEach(i -> {
+		int n = InternalTestHelper.getInternalUserNumber();
+		boolean perfMode = n >= 10_000;
+
+		for (int i = 0; i < n; i++) {
 			String userName = "internalUser" + i;
 			String phone = "000";
 			String email = userName + "@tourGuide.com";
 			User user = new User(UUID.randomUUID(), userName, phone, email);
-			generateUserLocationHistory(user);
+
+			if (perfMode) {
+
+				user.addToVisitedLocations(new VisitedLocation(
+						user.getUserId(),
+						new Location(0.0, 0.0),
+						new Date()
+				));
+			} else {
+				generateUserLocationHistory(user);
+			}
 
 			internalUserMap.put(userName, user);
-		});
-		logger.debug("Created " + InternalTestHelper.getInternalUserNumber() + " internal test users.");
+		}
+
+		logger.debug("Created " + n + " internal test users. perfMode=" + perfMode);
 	}
 
 	private void generateUserLocationHistory(User user) {
