@@ -70,12 +70,13 @@ public class User {
 	}
 
 	public synchronized void addUserReward(UserReward userReward) {
-		boolean alreadyExists = userRewards.stream()
-				.anyMatch(r -> r.attraction.attractionName.equals(userReward.attraction.attractionName));
-
-		if (!alreadyExists) {
-			userRewards.add(userReward);
+		UUID id = userReward.attraction.attractionId;
+		for (UserReward r : userRewards) {
+			if (r.attraction.attractionId.equals(id)) {
+				return;
+			}
 		}
+		userRewards.add(userReward);
 	}
 	
 	public List<UserReward> getUserRewards() {

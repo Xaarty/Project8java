@@ -1,2 +1,2 @@
-com\openclassrooms\tourguide\service\RewardsService$DaemonThreadFactory.class
+com\openclassrooms\tourguide\service\TourGuideService$GpsTask.class
 com\openclassrooms\tourguide\NearbyAttractionDTO.class

@@ -32,6 +32,9 @@ public class Tracker extends Thread {
 	public void stopTracking() {
 		stop = true;
 		executorService.shutdownNow();
+
+		// attendre la fin des rewards async
+		tourGuideService.waitForAllGpsTasks();
 	}
 
 	@Override
