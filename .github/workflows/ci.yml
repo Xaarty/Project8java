@@ -3,7 +3,7 @@ name: Java CI
 on:
   push:
     branches: 
-    - main
+    - master
     - test
   pull_request:
 
