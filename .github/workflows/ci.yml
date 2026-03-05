@@ -1,0 +1,40 @@
+name: Java CI
+
+on:
+  push:
+    branches: 
+    - main
+    - test
+  pull_request:
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Build & run tests
+        run: mvn -Pci clean test
+        working-directory: TourGuide
+
+      - name: Package application
+        run: mvn -Pci clean package -DskipTests
+        working-directory: TourGuide
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tourguide-jar
+          path: TourGuide/target/*.jar
