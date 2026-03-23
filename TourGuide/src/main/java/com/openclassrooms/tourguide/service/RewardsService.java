@@ -31,7 +31,7 @@ public class RewardsService {
 	private final GpsUtil gpsUtil;
 	private final RewardCentral rewardsCentral;
 
-	// Accès Controller (NearbyAttractions)
+	// Expose les points pour le controller NearbyAttractions
 	public int getAttractionRewardPoints(Attraction attraction, User user) {
 		return rewardsCentral.getAttractionRewardPoints(attraction.attractionId, user.getUserId());
 	}
@@ -39,7 +39,7 @@ public class RewardsService {
 	// Cache attractions pour réduire le coût gpsUtil.getAttractions()
 	private volatile List<Attraction> cachedAttractions;
 
-	// Expose la liste d’attractions (cache)
+	// Retourne la liste des attractions à partir du cache
 	public List<Attraction> getAttractions() {
 		return getAttractionsCached();
 	}
@@ -72,28 +72,11 @@ public class RewardsService {
 		this.rewardsCentral = rewardCentral;
 	}
 
-	// --------------------------------------------------------------------------------------------
-
-	/**
-	 * ✅ Cache interne pour le calcul batch des rewards.
-	 *
-	 * Pourquoi :
-	 * - RewardCentral simule une latence (sleep 1..1000ms) + points aléatoires.
-	 * - Le test de performance appelle calculateRewards() pour 100k users.
-	 * - Sans optimisation, on exécute potentiellement 100k appels lents (heures).
-	 *
-	 * Choix "métier" :
-	 * - On limite ce cache au flux batch calculateRewards() (pas aux endpoints).
-	 * - Cache par attractionId : on réduit drastiquement les appels lents.
-	 *   (Dans ce projet, le test ne valide pas la valeur des points, seulement l'existence d'une reward.)
-	 */
+	//Cache interne utilisé dans le calcul batch des rewards
 	private final java.util.concurrent.ConcurrentHashMap<UUID, Integer> rewardPointsByAttraction =
 			new java.util.concurrent.ConcurrentHashMap<>();
 
-	/**
-	 * Récupère les points pour une attraction avec cache (batch uniquement).
-	 * On garde userId dans la signature pour rester compatible avec RewardCentral.
-	 */
+
 	private int getCachedRewardPoints(UUID attractionId, UUID userId) {
 		return rewardPointsByAttraction.computeIfAbsent(
 				attractionId,
@@ -105,7 +88,7 @@ public class RewardsService {
 	// Calcule les rewards pour un user
 	public void calculateRewards(User user) {
 
-		// Snapshot lock
+		// Création de snapshots protégés pour éviter les concurrences
 		final List<VisitedLocation> visitedLocationsSnapshot;
 		final List<UserReward> userRewardsSnapshot;
 
@@ -115,7 +98,7 @@ public class RewardsService {
 				return;
 			}
 
-			// Copie évite que la liste change pendant le calcul
+			// Copie locale pour éviter qu'une modification concurrente n'impacte le calcul
 			visitedLocationsSnapshot = new ArrayList<>(visitedLocations);
 
 			List<UserReward> currentRewards = user.getUserRewards();
@@ -124,13 +107,13 @@ public class RewardsService {
 					: new ArrayList<>(currentRewards);
 		}
 
-		// Attractions (cache global)
+		// Récupération de la liste d'attractions depuis le cache
 		final List<Attraction> attractions = getAttractionsCached();
 		if (attractions == null || attractions.isEmpty()) {
 			return;
 		}
 
-		//Set local des attractions déjà récompensées
+		//Set local des attractions déjà récompensées, évite les doublons
 		final HashSet<UUID> rewardedAttractionIds = new HashSet<>(Math.max(16, userRewardsSnapshot.size() * 2));
 		for (UserReward reward : userRewardsSnapshot) {
 			rewardedAttractionIds.add(reward.attraction.attractionId);
@@ -154,7 +137,7 @@ public class RewardsService {
 				// Appel potentiellement lent -> version batch avec cache
 				int rewardPoints = getCachedRewardPoints(attractionId, user.getUserId());
 
-				// Ajout protégé (concurrence) + anti-doublon
+				// Ajout protégé pour gérer la concurrence et éviter un doublon final
 				synchronized (user) {
 					boolean alreadyRewarded = false;
 					for (UserReward existing : user.getUserRewards()) {

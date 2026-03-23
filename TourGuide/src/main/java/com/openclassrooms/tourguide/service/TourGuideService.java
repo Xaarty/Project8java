@@ -41,7 +41,7 @@ public class TourGuideService {
 
 	private static final int GPS_WINDOW_SIZE = 200;
 
-	// Pool borné pour paralléliser les appels externes
+	// Pool de threads borné pour paralléliser les GPS
 	private final ExecutorService gpsExecutor =
 			Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 8);
 
@@ -137,14 +137,10 @@ public class TourGuideService {
 		return providers;
 	}
 
-
-
-    /* =====================================================
-       TRACK USER LOCATION OPTIMISE
-       ===================================================== */
-
+	// Determination de la position GPS de l'utilisateur en asynchrone, traite les taches par fenetres
 	public VisitedLocation trackUserLocation(User user) {
 
+		//Liste futur pour optimisation en asynchrone
 		CompletableFuture<VisitedLocation> future =
 				CompletableFuture.supplyAsync(
 						() -> gpsUtil.getUserLocation(user.getUserId()),
@@ -157,20 +153,20 @@ public class TourGuideService {
 			return processOldestGpsTask();
 		}
 
-		// Retour immédiat d'une valeur cohérente
-		// (dernière position connue du user)
+		// Si il n'y a pas d'historique, on calcule immédiatement la position
 		if (user.getVisitedLocations() == null || user.getVisitedLocations().isEmpty()) {
-			// cas rare (tests unitaires) : on attend une vraie position
+
 			VisitedLocation visitedLocation = future.join();
 			user.addToVisitedLocations(visitedLocation);
 			rewardsService.calculateRewards(user);
 			return visitedLocation;
 		}
+		//Retour temporaire, la vraie position est intégrée lors du traitement en différé
 		return new VisitedLocation(user.getUserId(), new Location(0, 0), new Date());
 	}
 
 
-
+	// Traite la plus ancienne tâche GPS en attente
 	private VisitedLocation processOldestGpsTask() {
 
 		GpsTask task = gpsTasks.poll();
@@ -184,12 +180,7 @@ public class TourGuideService {
 		return visitedLocation;
 	}
 
-
-
-    /* =====================================================
-       DRAIN FINAL (appelé par Tracker.stopTracking)
-       ===================================================== */
-
+	// S'assure que les calculs GPS sont fini
 	public void waitForAllGpsTasks() {
 
 		while (!gpsTasks.isEmpty()) {
@@ -199,11 +190,7 @@ public class TourGuideService {
 		gpsExecutor.shutdown();
 	}
 
-
-
-	/**
-	 * Renvoyer les 5 attractions les plus proches
-	 */
+	//Correctif : les 5 attractions les plus proches
 	public List<Attraction> getNearByAttractions(VisitedLocation visitedLocation) {
 
 		Location userLocation = visitedLocation.location;
